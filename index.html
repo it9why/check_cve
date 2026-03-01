@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Patch - Software CVE Scanner</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="libs/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="libs/font-awesome.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container-fluid">
+        <header class="my-4">
+            <h1 class="display-4"><i class="fas fa-shield-alt text-primary"></i> Security Patch</h1>
+            <p class="lead">Import your software list, scan for CVEs, and export results.</p>
+        </header>
+
+        <div class="row">
+            <!-- Left column: Import and software list -->
+            <div class="col-lg-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h3 class="h5 mb-0"><i class="fas fa-file-import"></i> 1. Import Software List</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>Upload a CSV or JSON file with columns: <code>software_name</code>, <code>software_version</code>, <code>last_update</code>.</p>
+                        <div class="mb-3">
+                            <label for="fileInput" class="form-label">Choose file</label>
+                            <input class="form-control" type="file" id="fileInput" accept=".csv,.json">
+                        </div>
+                        <div class="mb-3">
+                            <label for="fileType" class="form-label">File type</label>
+                            <select class="form-select" id="fileType">
+                                <option value="csv">CSV</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </div>
+                        <button id="importBtn" class="btn btn-primary">
+                            <i class="fas fa-upload"></i> Import
+                        </button>
+                        <button id="clearBtn" class="btn btn-outline-secondary">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                        <hr>
+                        <p>Or use sample data:</p>
+                        <button id="sampleBtn" class="btn btn-outline-info">
+                            <i class="fas fa-vial"></i> Load Sample Data
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <h3 class="h5 mb-0"><i class="fas fa-list"></i> 2. Imported Software List</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="softwareTable">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Software Name</th>
+                                        <th>Version</th>
+                                        <th>Last Update</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="softwareTableBody">
+                                    <!-- Rows will be inserted by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="text-muted" id="tableCount">No software imported yet.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right column: CVE search and results -->
+            <div class="col-lg-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h3 class="h5 mb-0"><i class="fas fa-search"></i> 3. Search for CVEs</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>Search for Common Vulnerabilities and Exposures (CVEs) related to each software in the list using the NVD API.</p>
+                        <div class="mb-3">
+                            <label for="apiKey" class="form-label">NVD API Key (optional)</label>
+                            <input type="text" class="form-control" id="apiKey" placeholder="Leave empty for public rate limit">
+                            <div class="form-text">Get a free API key from <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank">NVD</a> to increase rate limits.</div>
+                        </div>
+                        <button id="searchBtn" class="btn btn-warning" disabled>
+                            <i class="fas fa-search"></i> Search CVEs
+                        </button>
+                        <button id="stopBtn" class="btn btn-outline-danger" disabled>
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <div class="progress mt-3" id="progressBarContainer" style="display: none;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header bg-danger text-white">
+                        <h3 class="h5 mb-0"><i class="fas fa-bug"></i> 4. CVE Search Results</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="cveTable">
+                                <thead>
+                                    <tr>
+                                        <th>CVE ID</th>
+                                        <th>Software</th>
+                                        <th>Version</th>
+                                        <th>Severity</th>
+                                        <th>Published</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cveTableBody">
+                                    <!-- Rows will be inserted by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="text-muted" id="cveCount">No CVEs found yet.</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h3 class="h5 mb-0"><i class="fas fa-download"></i> 5. Export Results</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>Export the CVE results as CSV or JSON.</p>
+                        <button id="exportCsvBtn" class="btn btn-success">
+                            <i class="fas fa-file-csv"></i> Export as CSV
+                        </button>
+                        <button id="exportJsonBtn" class="btn btn-info">
+                            <i class="fas fa-file-code"></i> Export as JSON
+                        </button>
+                        <button id="exportAllBtn" class="btn btn-outline-primary">
+                            <i class="fas fa-file-archive"></i> Export All Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="my-4 text-center text-muted">
+            <p>Security Patch &copy; 2026 | Uses the <a href="https://nvd.nist.gov/" target="_blank">NVD API</a> | Static HTML page</p>
+        </footer>
+    </div>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="libs/bootstrap.bundle.min.js"></script>
+    <!-- Papa Parse for CSV parsing -->
+    <script src="libs/papaparse.min.js"></script>
+    <!-- Our main script -->
+    <script src="script.js"></script>
+</body>
+</html>
