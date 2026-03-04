@@ -30,7 +30,11 @@ const elements = {
     cveCount: document.getElementById('cveCount'),
     exportCsvBtn: document.getElementById('exportCsvBtn'),
     exportJsonBtn: document.getElementById('exportJsonBtn'),
-    exportAllBtn: document.getElementById('exportAllBtn')
+    exportAllBtn: document.getElementById('exportAllBtn'),
+    statusContainer: document.getElementById('statusContainer'),
+    statusLog: document.getElementById('statusLog'),
+    currentStatus: document.getElementById('currentStatus'),
+    clearStatusBtn: document.getElementById('clearStatusBtn')
 };
 
 // Sample data for demonstration
@@ -63,6 +67,7 @@ function attachEventListeners() {
     elements.exportCsvBtn.addEventListener('click', () => exportData('csv'));
     elements.exportJsonBtn.addEventListener('click', () => exportData('json'));
     elements.exportAllBtn.addEventListener('click', exportAllData);
+    elements.clearStatusBtn.addEventListener('click', clearStatusLog);
     
     // Enable search button when there's software data
     elements.searchBtn.disabled = state.softwareList.length === 0;
@@ -194,6 +199,11 @@ async function handleCveSearch() {
     updateCveTable();
     updateUI();
 
+    // Show status container and log start
+    showStatusContainer();
+    addStatusMessage('info', 'Starting CVE search', `Searching for CVEs across ${state.softwareList.length} software items`);
+    updateCurrentStatus('loading', `Searching for CVEs (0/${state.softwareList.length})`);
+
     elements.progressBarContainer.style.display = 'block';
     elements.progressBar.style.width = '0%';
 
@@ -203,9 +213,19 @@ async function handleCveSearch() {
         const software = state.softwareList[i];
         const progress = ((i + 1) / state.softwareList.length) * 100;
         elements.progressBar.style.width = `${progress}%`;
+        
+        // Update current status
+        updateCurrentStatus('loading', `Searching for CVEs (${i + 1}/${state.softwareList.length}): ${software.software_name} ${software.software_version}`);
 
         try {
             const cves = await searchCves(software.software_name, software.software_version);
+            
+            if (cves.length > 0) {
+                addStatusMessage('success', `Found ${cves.length} CVEs for ${software.software_name}`, `Version: ${software.software_version}`);
+            } else {
+                addStatusMessage('info', `No CVEs found for ${software.software_name}`, `Version: ${software.software_version}`);
+            }
+            
             cves.forEach(cve => {
                 cve.softwareIndex = i;
                 state.cveResults.push(cve);
@@ -219,6 +239,7 @@ async function handleCveSearch() {
                 await sleep(1000); // 1 second delay between requests
             }
         } catch (error) {
+            addStatusMessage('error', `Error searching CVEs for ${software.software_name}`, error.message);
             console.error(`Error searching CVEs for ${software.software_name}:`, error);
         }
     }
@@ -228,7 +249,12 @@ async function handleCveSearch() {
     updateUI();
     
     if (!state.searchAborted) {
+        addStatusMessage('success', 'CVE search completed', `Found ${state.cveResults.length} vulnerabilities across ${state.softwareList.length} software items`);
+        updateCurrentStatus('success', `Search completed. Found ${state.cveResults.length} CVEs.`);
         alert(`CVE search completed. Found ${state.cveResults.length} vulnerabilities.`);
+    } else {
+        addStatusMessage('warning', 'CVE search stopped', `Search was stopped by user. Found ${state.cveResults.length} vulnerabilities before stopping.`);
+        updateCurrentStatus('warning', 'Search stopped by user');
     }
 }
 
@@ -264,19 +290,33 @@ async function searchCves(softwareName, softwareVersion) {
         }
 
         try {
+            // Log API request start
+            addStatusMessage('info', `Making API request for: ${term}`, `Software: ${softwareName} ${softwareVersion}`);
+
             const response = await fetch(url, { headers });
-            if (!response.ok) {
+            
+            // Log response status
+            if (response.ok) {
+                addStatusMessage('success', `API request successful for: ${term}`, `Status: ${response.status} ${response.statusText}`);
+            } else {
                 if (response.status === 403 && !apiKey) {
+                    addStatusMessage('warning', `Rate limited for: ${term}`, 'Consider adding an API key to increase rate limits');
                     console.warn('Rate limited. Consider adding an API key.');
                     await sleep(6000); // Wait longer if rate limited
                     continue;
                 }
+                addStatusMessage('error', `API request failed for: ${term}`, `Status: ${response.status} ${response.statusText}`);
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const data = await response.json();
             
             if (data.vulnerabilities) {
+                const cveCount = data.vulnerabilities.length;
+                if (cveCount > 0) {
+                    addStatusMessage('success', `Found ${cveCount} potential CVEs for: ${term}`, `Processing vulnerabilities...`);
+                }
+                
                 data.vulnerabilities.forEach(vuln => {
                     const cve = vuln.cve;
                     if (!uniqueCves.has(cve.id)) {
@@ -308,13 +348,18 @@ async function searchCves(softwareName, softwareVersion) {
                         });
                     }
                 });
+            } else {
+                addStatusMessage('info', `No vulnerabilities found for: ${term}`, 'API returned empty vulnerabilities array');
             }
         } catch (error) {
+            addStatusMessage('error', `Error fetching CVEs for term "${term}"`, error.message);
             console.error(`Error fetching CVEs for term "${term}":`, error);
         }
 
         // Rate limiting delay
-        await sleep(apiKey ? 200 : 6000); // Shorter delay with API key
+        const delay = apiKey ? 200 : 6000;
+        addStatusMessage('info', `Rate limiting delay: ${delay}ms`, `Waiting before next API request...`);
+        await sleep(delay); // Shorter delay with API key
     }
 
     return results;
@@ -463,6 +508,96 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Status logging functions
+function showStatusContainer() {
+    elements.statusContainer.style.display = 'block';
+}
+
+function hideStatusContainer() {
+    elements.statusContainer.style.display = 'none';
+}
+
+function clearStatusLog() {
+    elements.statusLog.innerHTML = '';
+    elements.currentStatus.innerHTML = '';
+}
+
+function addStatusMessage(type, message, details = '') {
+    const timestamp = new Date().toLocaleTimeString();
+    const icon = getStatusIcon(type);
+    const colorClass = getStatusColorClass(type);
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `status-message ${colorClass} p-2 mb-2 rounded border`;
+    messageDiv.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="d-flex align-items-center">
+                <i class="${icon} me-2"></i>
+                <div>
+                    <strong>${message}</strong>
+                    ${details ? `<div class="small text-muted mt-1">${details}</div>` : ''}
+                </div>
+            </div>
+            <span class="small text-muted">${timestamp}</span>
+        </div>
+    `;
+    
+    elements.statusLog.prepend(messageDiv);
+    elements.statusLog.scrollTop = 0;
+    
+    // Update current status
+    elements.currentStatus.innerHTML = `
+        <div class="alert alert-${getAlertClass(type)} alert-dismissible fade show py-2" role="alert">
+            <i class="${icon} me-2"></i>
+            <strong>${type.toUpperCase()}:</strong> ${message}
+            ${details ? `<div class="small mt-1">${details}</div>` : ''}
+        </div>
+    `;
+}
+
+function updateCurrentStatus(type, message) {
+    const icon = getStatusIcon(type);
+    elements.currentStatus.innerHTML = `
+        <div class="alert alert-${getAlertClass(type)} py-2 mb-0" role="alert">
+            <i class="${icon} me-2"></i>
+            <strong>${type.toUpperCase()}:</strong> ${message}
+        </div>
+    `;
+}
+
+function getStatusIcon(type) {
+    switch(type) {
+        case 'success': return 'fas fa-check-circle';
+        case 'info': return 'fas fa-info-circle';
+        case 'warning': return 'fas fa-exclamation-triangle';
+        case 'error': return 'fas fa-exclamation-circle';
+        case 'loading': return 'fas fa-spinner fa-spin';
+        default: return 'fas fa-info-circle';
+    }
+}
+
+function getStatusColorClass(type) {
+    switch(type) {
+        case 'success': return 'bg-success bg-opacity-10 text-success border-success';
+        case 'info': return 'bg-info bg-opacity-10 text-info border-info';
+        case 'warning': return 'bg-warning bg-opacity-10 text-warning border-warning';
+        case 'error': return 'bg-danger bg-opacity-10 text-danger border-danger';
+        case 'loading': return 'bg-primary bg-opacity-10 text-primary border-primary';
+        default: return 'bg-secondary bg-opacity-10 text-secondary border-secondary';
+    }
+}
+
+function getAlertClass(type) {
+    switch(type) {
+        case 'success': return 'success';
+        case 'info': return 'info';
+        case 'warning': return 'warning';
+        case 'error': return 'danger';
+        case 'loading': return 'primary';
+        default: return 'secondary';
+    }
 }
 
 // Make functions available globally for onclick handlers

@@ -132,3 +132,93 @@ footer {
 .table-responsive::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* Status container and messages */
+.status-log {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+}
+
+.status-message {
+    transition: all 0.3s ease;
+}
+
+.status-message:hover {
+    transform: translateX(2px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.status-message.bg-success {
+    border-left: 4px solid #28a745;
+}
+
+.status-message.bg-info {
+    border-left: 4px solid #17a2b8;
+}
+
+.status-message.bg-warning {
+    border-left: 4px solid #ffc107;
+}
+
+.status-message.bg-danger {
+    border-left: 4px solid #dc3545;
+}
+
+.status-message.bg-primary {
+    border-left: 4px solid #007bff;
+}
+
+.status-message.bg-secondary {
+    border-left: 4px solid #6c757d;
+}
+
+.status-log::-webkit-scrollbar {
+    width: 6px;
+}
+
+.status-log::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.status-log::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.status-log::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Alert adjustments for status */
+.alert.alert-primary {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-color: rgba(0, 123, 255, 0.25);
+    color: #004085;
+}
+
+.alert.alert-success {
+    background-color: rgba(40, 167, 69, 0.1);
+    border-color: rgba(40, 167, 69, 0.25);
+    color: #155724;
+}
+
+.alert.alert-info {
+    background-color: rgba(23, 162, 184, 0.1);
+    border-color: rgba(23, 162, 184, 0.25);
+    color: #0c5460;
+}
+
+.alert.alert-warning {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.25);
+    color: #856404;
+}
+
+.alert.alert-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+    border-color: rgba(220, 53, 69, 0.25);
+    color: #721c24;
+}
