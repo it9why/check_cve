@@ -11,10 +11,29 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container-fluid">
-        <header class="my-4">
-            <h1 class="display-4"><i class="fas fa-shield-alt text-primary"></i> Security Patch</h1>
-            <p class="lead">Import your software list, scan for CVEs, and export results.</p>
+    <div class="container-fluid px-lg-5">
+        <header class="my-4 text-center">
+            <div class="d-flex justify-content-center align-items-center mb-2">
+                <div class="p-2 bg-primary rounded-circle shadow" style="width: 60px; height: 60px;">
+                    <i class="fas fa-shield-alt fa-2x text-white"></i>
+                </div>
+                <div class="ms-3">
+                    <h1 class="display-5 fw-bold mb-1">Security Patch</h1>
+                    <div class="d-flex align-items-center justify-content-center">
+                        <span class="badge bg-primary me-2">CVE Scanner</span>
+                        <span class="badge bg-success me-2">Security Tool</span>
+                        <span class="badge bg-info">Web-Based</span>
+                    </div>
+                </div>
+            </div>
+            <p class="text-muted mx-auto mb-2" style="max-width: 600px; font-size: 1rem;">
+                Import software list, scan for CVEs using NVD API, and export results.
+            </p>
+            <div class="alert alert-info alert-dismissible fade show mx-auto mt-2 p-2" style="max-width: 800px; font-size: 0.875rem;" role="alert">
+                <i class="fas fa-lightbulb me-1"></i>
+                <strong>Tip:</strong> Get a free API key from <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" class="alert-link">NVD</a> for faster searches.
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
         </header>
 
         <div class="row">
@@ -117,19 +136,30 @@
                 </div>
 
                 <div class="card mb-4">
-                    <div class="card-header bg-danger text-white">
+                    <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
                         <h3 class="h5 mb-0"><i class="fas fa-bug"></i> 4. CVE Search Results</h3>
+                        <div class="d-flex align-items-center">
+                            <button id="cveExpandBtn" class="btn btn-sm btn-outline-light me-2" title="Expand to full screen">
+                                <i class="fas fa-expand"></i>
+                            </button>
+                            <div class="input-group input-group-sm" style="width: 200px;">
+                                <input type="text" id="cveSearchInput" class="form-control form-control-sm" placeholder="Search CVEs...">
+                                <button class="btn btn-outline-light" type="button" id="cveSearchBtn">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body">
-                        <div class="table-responsive">
+                        <div class="table-responsive" id="cveTableContainer">
                             <table class="table table-hover" id="cveTable">
                                 <thead>
                                     <tr>
-                                        <th>CVE ID</th>
-                                        <th>Software</th>
-                                        <th>Version</th>
-                                        <th>Severity</th>
-                                        <th>Published</th>
+                                        <th class="sortable" data-sort="id">CVE ID <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="software">Software <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="version">Version <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="severity">Severity <i class="fas fa-sort"></i></th>
+                                        <th class="sortable" data-sort="published">Published <i class="fas fa-sort"></i></th>
                                         <th>Description</th>
                                     </tr>
                                 </thead>
@@ -138,7 +168,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <p class="text-muted" id="cveCount">No CVEs found yet.</p>
+                        <p class="text-muted mb-0" id="cveCount">No CVEs found yet.</p>
                     </div>
                 </div>
 

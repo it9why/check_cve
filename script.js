@@ -7,9 +7,13 @@
 const state = {
     softwareList: [],
     cveResults: [],
+    filteredCveResults: [],
     isSearching: false,
     currentSearchIndex: 0,
-    searchAborted: false
+    searchAborted: false,
+    cveSortColumn: null,
+    cveSortDirection: 'asc',
+    isCveFullScreen: false
 };
 
 // DOM Elements
@@ -34,7 +38,11 @@ const elements = {
     statusContainer: document.getElementById('statusContainer'),
     statusLog: document.getElementById('statusLog'),
     currentStatus: document.getElementById('currentStatus'),
-    clearStatusBtn: document.getElementById('clearStatusBtn')
+    clearStatusBtn: document.getElementById('clearStatusBtn'),
+    cveExpandBtn: document.getElementById('cveExpandBtn'),
+    cveSearchInput: document.getElementById('cveSearchInput'),
+    cveSearchBtn: document.getElementById('cveSearchBtn'),
+    cveTableContainer: document.getElementById('cveTableContainer')
 };
 
 // Sample data for demonstration
@@ -68,6 +76,28 @@ function attachEventListeners() {
     elements.exportJsonBtn.addEventListener('click', () => exportData('json'));
     elements.exportAllBtn.addEventListener('click', exportAllData);
     elements.clearStatusBtn.addEventListener('click', clearStatusLog);
+    
+    // CVE table functionality
+    if (elements.cveExpandBtn) {
+        elements.cveExpandBtn.addEventListener('click', toggleCveFullScreen);
+    }
+    if (elements.cveSearchBtn) {
+        elements.cveSearchBtn.addEventListener('click', handleCveSearchInput);
+    }
+    if (elements.cveSearchInput) {
+        elements.cveSearchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') {
+                handleCveSearchInput();
+            }
+        });
+    }
+    
+    // Add sorting event listeners to table headers
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.addEventListener('click', function() {
+            handleCveSort(this.dataset.sort);
+        });
+    });
     
     // Enable search button when there's software data
     elements.searchBtn.disabled = state.softwareList.length === 0;
@@ -376,10 +406,77 @@ function getSeverityFromScore(score) {
 
 // Update CVE table display
 function updateCveTable() {
+    // Reset filtered results to all results
+    state.filteredCveResults = [...state.cveResults];
+    refreshCveTableDisplay();
+}
+
+// Refresh CVE table display with filtering and sorting
+function refreshCveTableDisplay() {
     const tbody = elements.cveTableBody;
     tbody.innerHTML = '';
 
-    state.cveResults.forEach((cve, index) => {
+    // Apply search filter if there's a search term
+    const searchTerm = elements.cveSearchInput ? elements.cveSearchInput.value.trim().toLowerCase() : '';
+    if (searchTerm) {
+        state.filteredCveResults = state.cveResults.filter(cve => 
+            cve.id.toLowerCase().includes(searchTerm) ||
+            cve.software.toLowerCase().includes(searchTerm) ||
+            cve.version.toLowerCase().includes(searchTerm) ||
+            cve.severity.toLowerCase().includes(searchTerm) ||
+            cve.published.toLowerCase().includes(searchTerm) ||
+            cve.description.toLowerCase().includes(searchTerm)
+        );
+    } else {
+        state.filteredCveResults = [...state.cveResults];
+    }
+
+    // Apply sorting
+    if (state.cveSortColumn) {
+        state.filteredCveResults.sort((a, b) => {
+            let aVal = a[state.cveSortColumn];
+            let bVal = b[state.cveSortColumn];
+            
+            // Handle special cases
+            if (state.cveSortColumn === 'id') {
+                aVal = a.id;
+                bVal = b.id;
+            } else if (state.cveSortColumn === 'score') {
+                aVal = a.score || 0;
+                bVal = b.score || 0;
+            }
+            
+            // Handle null/undefined values
+            if (aVal === undefined || aVal === null) aVal = '';
+            if (bVal === undefined || bVal === null) bVal = '';
+            
+            // Convert to string for case-insensitive comparison
+            if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+            if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+            
+            if (aVal < bVal) return state.cveSortDirection === 'asc' ? -1 : 1;
+            if (aVal > bVal) return state.cveSortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
+    // Update table headers with sort indicators
+    document.querySelectorAll('.sortable i').forEach(icon => {
+        icon.className = 'fas fa-sort';
+    });
+    
+    if (state.cveSortColumn) {
+        const currentHeader = document.querySelector(`.sortable[data-sort="${state.cveSortColumn}"]`);
+        if (currentHeader) {
+            const icon = currentHeader.querySelector('i');
+            if (icon) {
+                icon.className = state.cveSortDirection === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+            }
+        }
+    }
+
+    // Render rows
+    state.filteredCveResults.forEach((cve, index) => {
         const row = document.createElement('tr');
         row.className = 'fade-in';
         const severityClass = `severity-${cve.severity.toLowerCase()}`;
@@ -404,7 +501,7 @@ function updateCveTable() {
         tbody.appendChild(row);
     });
 
-    elements.cveCount.textContent = `${state.cveResults.length} CVE(s) found`;
+    elements.cveCount.textContent = `${state.filteredCveResults.length} CVE(s) found${searchTerm ? ` (filtered from ${state.cveResults.length})` : ''}`;
 }
 
 // Export data
@@ -597,6 +694,51 @@ function getAlertClass(type) {
         case 'error': return 'danger';
         case 'loading': return 'primary';
         default: return 'secondary';
+    }
+}
+
+// Handle CVE table sorting
+function handleCveSort(column) {
+    if (state.cveSortColumn === column) {
+        // Toggle direction if same column
+        state.cveSortDirection = state.cveSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        // New column, default to ascending
+        state.cveSortColumn = column;
+        state.cveSortDirection = 'asc';
+    }
+    refreshCveTableDisplay();
+}
+
+// Handle CVE search input
+function handleCveSearchInput() {
+    refreshCveTableDisplay();
+}
+
+// Toggle full screen mode for CVE table
+function toggleCveFullScreen() {
+    state.isCveFullScreen = !state.isCveFullScreen;
+    const card = elements.cveExpandBtn.closest('.card');
+    const tableContainer = elements.cveTableContainer;
+    const icon = elements.cveExpandBtn.querySelector('i');
+    
+    if (state.isCveFullScreen) {
+        // Enter full screen
+        card.classList.add('full-screen');
+        tableContainer.style.maxHeight = 'calc(100vh - 200px)';
+        tableContainer.style.height = 'calc(100vh - 200px)';
+        icon.className = 'fas fa-compress';
+        elements.cveExpandBtn.title = 'Exit full screen';
+        
+        // Scroll to the card
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+        // Exit full screen
+        card.classList.remove('full-screen');
+        tableContainer.style.maxHeight = '';
+        tableContainer.style.height = '';
+        icon.className = 'fas fa-expand';
+        elements.cveExpandBtn.title = 'Expand to full screen';
     }
 }
 
