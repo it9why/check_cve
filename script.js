@@ -45,8 +45,28 @@ const elements = {
     cveTableContainer: document.getElementById('cveTableContainer')
 };
 
+// CPE mappings for software - maps software names to their CPE vendor:product identifiers
+// Used to construct precise CPE-based API queries with version numbers
+const SOFTWARE_CPE_MAP = {
+    'apache http server': { vendor: 'apache', product: 'http_server' },
+    'nginx': { vendor: 'nginx', product: 'nginx' },
+    'openssl': { vendor: 'openssl', product: 'openssl' },
+    'node.js': { vendor: 'nodejs', product: 'node.js' },
+    'python': { vendor: 'python', product: 'python' },
+    'mysql': { vendor: 'oracle', product: 'mysql' },
+    'postgresql': { vendor: 'postgresql', product: 'postgresql' },
+    'redis': { vendor: 'redis', product: 'redis' },
+    'docker': { vendor: 'docker', product: 'docker' },
+    'git': { vendor: 'git', product: 'git' },
+    'linux kernel': { vendor: 'linux', product: 'linux_kernel' },
+    'google chrome': { vendor: 'google', product: 'chrome' },
+    'chrome': { vendor: 'google', product: 'chrome' },
+    'linux': { vendor: 'linux', product: 'linux_kernel' }
+};
+
 // Sample data for demonstration
 const SAMPLE_DATA = [
+
     { software_name: 'Apache HTTP Server', software_version: '2.4.58', last_update: '2024-01-01' },
     { software_name: 'nginx', software_version: '1.25.3', last_update: '2023-12-15' },
     { software_name: 'OpenSSL', software_version: '3.0.11', last_update: '2024-02-13' },
@@ -56,7 +76,9 @@ const SAMPLE_DATA = [
     { software_name: 'PostgreSQL', software_version: '16.2', last_update: '2024-02-08' },
     { software_name: 'Redis', software_version: '7.2.4', last_update: '2023-12-20' },
     { software_name: 'Docker', software_version: '24.0.7', last_update: '2023-11-14' },
-    { software_name: 'Git', software_version: '2.43.0', last_update: '2023-11-20' }
+    { software_name: 'Git', software_version: '2.43.0', last_update: '2023-11-20' },
+    { software_name: 'Linux Kernel', software_version: '5.15.0', last_update: '2024-03-10' },
+    { software_name: 'Google Chrome', software_version: '120.0.6099.109', last_update: '2024-02-22' }
 ];
 
 // Initialize the application
@@ -297,60 +319,341 @@ function handleStopSearch() {
     alert('CVE search stopped.');
 }
 
-// Search for CVEs using NVD API
+/**
+ * Compare two semantic version strings numerically.
+ * Returns:
+ *   -1 if v1 < v2
+ *    0 if v1 === v2
+ *    1 if v1 > v2
+ */
+function compareVersions(v1, v2) {
+    // Handle missing/unknown versions
+    if (!v1 || v1 === 'Unknown' || v1 === 'N/A') return 0;
+    if (!v2 || v2 === 'Unknown' || v2 === 'N/A') return 0;
+
+    // Split on dots, hyphens, underscores, or plus signs for pre-release handling
+    const parseVersion = (v) => {
+        const cleaned = String(v).trim();
+        // Split on common delimiters, but keep the main numeric parts
+        const mainParts = cleaned.split(/[-_+]/)[0]; // Take before pre-release tag
+        return mainParts.split('.').map(part => {
+            const num = parseInt(part, 10);
+            return isNaN(num) ? 0 : num;
+        });
+    };
+
+    const parts1 = parseVersion(v1);
+    const parts2 = parseVersion(v2);
+    const maxLen = Math.max(parts1.length, parts2.length);
+
+    for (let i = 0; i < maxLen; i++) {
+        const p1 = parts1[i] || 0;
+        const p2 = parts2[i] || 0;
+        if (p1 < p2) return -1;
+        if (p1 > p2) return 1;
+    }
+    return 0;
+}
+
+/**
+ * Check if a specific software version falls within a CPE match's affected range.
+ */
+function isVersionInCpeRange(softwareVersion, cpeMatch) {
+    const {
+        versionStartIncluding,
+        versionStartExcluding,
+        versionEndIncluding,
+        versionEndExcluding
+    } = cpeMatch;
+
+    if (versionStartIncluding && compareVersions(softwareVersion, versionStartIncluding) < 0) {
+        return false;
+    }
+    if (versionStartExcluding && compareVersions(softwareVersion, versionStartExcluding) <= 0) {
+        return false;
+    }
+    if (versionEndIncluding && compareVersions(softwareVersion, versionEndIncluding) > 0) {
+        return false;
+    }
+    if (versionEndExcluding && compareVersions(softwareVersion, versionEndExcluding) >= 0) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Normalize a software name for CPE product comparison:
+ * - lowercase
+ * - replace spaces/hyphens/underscores with single underscore
+ * - remove common suffixes like "server", "software"
+ */
+function normalizeForCpe(name) {
+    return String(name)
+        .toLowerCase()
+        .replace(/[\s\-_]+/g, '_')
+        .replace(/[^a-z0-9_.]/g, '')
+        .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Check if a software name matches a CPE vendor:product combination.
+ * Uses multiple strategies: direct substring match, normalized comparison,
+ * and common name mappings.
+ */
+function doesCpeMatchSoftware(criteria, softwareName) {
+    if (!criteria) return false;
+
+    // Parse CPE 2.3 URI: cpe:2.3:part:vendor:product:version:update:edition:lang:sw_edition:target_sw:target_hw:other
+    const parts = criteria.split(':');
+    const cpeVendor = (parts[3] || '').toLowerCase();
+    const cpeProduct = (parts[4] || '').toLowerCase();
+
+    // Skip if vendor or product is wildcard (too generic)
+    if (cpeVendor === '*' || cpeProduct === '*' || cpeProduct === '-') return false;
+
+    const swLower = softwareName.toLowerCase();
+    const swNormalized = normalizeForCpe(softwareName);
+
+    // Strategy 1: Direct substring match (e.g., "nginx" in "nginx")
+    if (swLower === cpeProduct || swLower === `${cpeVendor}_${cpeProduct}`) return true;
+    if (swLower.includes(cpeProduct) || cpeProduct.includes(swLower)) return true;
+
+    // Strategy 2: Normalized comparison (e.g., "http_server" matches "Apache HTTP Server")
+    if (swNormalized === cpeProduct || swNormalized === `${cpeVendor}_${cpeProduct}`) return true;
+    if (swNormalized.includes(cpeProduct) || cpeProduct.includes(swNormalized)) return true;
+
+    // Strategy 3: Check if software name contains the vendor or product
+    if (cpeVendor !== '-' && swLower.includes(cpeVendor)) return true;
+
+    // Strategy 4: Check if the software name's words match the CPE product
+    const swWords = swLower.split(/[\s_\-]+/);
+    const cpeWords = cpeProduct.split(/[_\-.]+/);
+    
+    // If all CPE product words appear in the software name
+    const allProductWordsMatch = cpeWords.every(word => 
+        word.length > 2 && swWords.some(sw => sw.includes(word) || word.includes(sw))
+    );
+    if (allProductWordsMatch && cpeWords.length > 0) return true;
+
+    return false;
+}
+
+/**
+ * Check if a CVE's configurations indicate that a specific software version
+ * is affected by this vulnerability.
+ * Returns true if at least one CPE match covers the given version.
+ *
+ * NVD API 2.0 configuration structure:
+ *   configurations[].nodes[].cpeMatch[]
+ *   configurations[].nodes[].children[].cpeMatch[]
+ * 
+ * NOTE: If a CVE has no configuration data, we include it (can't verify).
+ * Only filter out CVEs where we can positively confirm the version is NOT affected.
+ */
+function isVersionAffectedByCve(configurations, softwareName, softwareVersion) {
+    // If no configuration data is available, include the CVE (can't verify exclusion)
+    if (!configurations || !Array.isArray(configurations) || configurations.length === 0) {
+        return true;
+    }
+
+    // Iterate through all configuration objects (each has a "nodes" array)
+    for (const config of configurations) {
+        // Skip if no nodes array
+        if (!config.nodes || !Array.isArray(config.nodes) || config.nodes.length === 0) {
+            continue;
+        }
+
+        // Check each node within the configuration
+        for (const node of config.nodes) {
+            // Check CPE matches at this node level
+            if (node.cpeMatch && Array.isArray(node.cpeMatch)) {
+                for (const cpeMatch of node.cpeMatch) {
+                    if (checkCpeMatchAffectsVersion(cpeMatch, softwareName, softwareVersion)) {
+                        return true;
+                    }
+                }
+            }
+
+            // Recursively check children nodes (nested AND/OR logic)
+            if (node.children && Array.isArray(node.children)) {
+                for (const child of node.children) {
+                    if (child.cpeMatch && Array.isArray(child.cpeMatch)) {
+                        for (const cpeMatch of child.cpeMatch) {
+                            if (checkCpeMatchAffectsVersion(cpeMatch, softwareName, softwareVersion)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if a single CPE match entry indicates a specific software version is affected.
+ */
+function checkCpeMatchAffectsVersion(cpeMatch, softwareName, softwareVersion) {
+    // Only consider vulnerable matches
+    if (!cpeMatch.vulnerable) return false;
+
+    // Check if this CPE match is related to our software
+    if (!doesCpeMatchSoftware(cpeMatch.criteria, softwareName)) return false;
+
+    const cpeParts = cpeMatch.criteria.split(':');
+    const cpeVersion = (cpeParts[5] || '').toLowerCase();
+
+    // Case 1: CPE has an exact version (not wildcard)
+    if (cpeVersion && cpeVersion !== '*' && cpeVersion !== '-') {
+        // If the CPE version is the same as our software version, it's affected
+        if (compareVersions(softwareVersion, cpeVersion) === 0) {
+            return true;
+        }
+        return false; // Exact version CPE doesn't match our version
+    }
+
+    // Case 2: CPE has a version range (versionStartIncluding, versionEndExcluding, etc.)
+    if (cpeMatch.versionStartIncluding || cpeMatch.versionStartExcluding || 
+        cpeMatch.versionEndIncluding || cpeMatch.versionEndExcluding) {
+        return isVersionInCpeRange(softwareVersion, cpeMatch);
+    }
+
+    // Case 3: CPE with wildcard version and no range specified 
+    // This means ALL versions are affected - include it
+    if (cpeVersion === '*' || (!cpeVersion || cpeVersion === '-')) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Get the CPE vendor:product mapping for a given software name.
+ * Falls back to normalizing the name if not found in the map.
+ */
+function getCpeMapping(softwareName) {
+    const key = softwareName.toLowerCase().trim();
+    if (SOFTWARE_CPE_MAP[key]) {
+        return SOFTWARE_CPE_MAP[key];
+    }
+    // Try normalized version
+    const normalized = normalizeForCpe(softwareName);
+    if (SOFTWARE_CPE_MAP[normalized]) {
+        return SOFTWARE_CPE_MAP[normalized];
+    }
+    return null;
+}
+
+/**
+ * Build a CPE 2.3 URI string: cpe:2.3:a:vendor:product:version:*:*:*:*:*:*:*
+ */
+function buildCpeUri(vendor, product, version) {
+    return `cpe:2.3:a:${vendor}:${product}:${version}:*:*:*:*:*:*:*`;
+}
+
+/**
+ * Search for CVEs using NVD API, with version-aware filtering.
+ * Uses both keywordSearch and cpeName-based queries to find CVEs,
+ * then filters by exact version matching using CPE match criteria.
+ */
 async function searchCves(softwareName, softwareVersion) {
     const apiKey = elements.apiKey.value.trim();
-    const searchTerms = [
-        softwareName,
-        `${softwareName} ${softwareVersion}`,
-        softwareName.replace(/\s+/g, '+'),
-        `${softwareName}+${softwareVersion}`
-    ];
+    const headers = {};
+    if (apiKey) {
+        headers['apiKey'] = apiKey;
+    }
 
-    const uniqueCves = new Set();
+    const uniqueCves = new Map(); // Map: CVE ID -> CVE data
     const results = [];
 
-    for (const term of searchTerms) {
-        if (term.length < 2) continue;
+    // Look up CPE mapping for CPE-based API query
+    const cpeMapping = getCpeMapping(softwareName);
 
-        const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(term)}`;
-        const headers = {};
-        if (apiKey) {
-            headers['apiKey'] = apiKey;
-        }
+    // Build search terms: CPE-based query (most precise) first, then keyword searches
+    const searchQueries = [];
+
+    // 1. CPE-based query with exact version (most precise - finds CVEs for this exact version)
+    if (cpeMapping) {
+        const cpeUri = buildCpeUri(cpeMapping.vendor, cpeMapping.product, softwareVersion);
+        searchQueries.push({
+            type: 'cpeName',
+            label: `CPE: ${cpeMapping.vendor}:${cpeMapping.product}:${softwareVersion}`,
+            url: `https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=${encodeURIComponent(cpeUri)}&resultsPerPage=100`
+        });
+    }
+
+    // 2. CPE-based query with wildcard version (finds all CVEs for this product)
+    if (cpeMapping) {
+        const cpeWildcardUri = buildCpeUri(cpeMapping.vendor, cpeMapping.product, '*');
+        searchQueries.push({
+            type: 'cpeNameWildcard',
+            label: `CPE: ${cpeMapping.vendor}:${cpeMapping.product}:*`,
+            url: `https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=${encodeURIComponent(cpeWildcardUri)}&resultsPerPage=100`
+        });
+    }
+
+    // 3. Keyword search with name + version
+    searchQueries.push({
+        type: 'keyword',
+        label: `Keyword: ${softwareName} ${softwareVersion}`,
+        url: `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(`${softwareName} ${softwareVersion}`)}&resultsPerPage=100`
+    });
+
+    // 4. Keyword search with name only (broadest)
+    searchQueries.push({
+        type: 'keyword',
+        label: `Keyword: ${softwareName}`,
+        url: `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(softwareName)}&resultsPerPage=100`
+    });
+
+    for (const query of searchQueries) {
+        // Skip if no URL (e.g., short names)
+        if (!query.url || query.label.length < 2) continue;
 
         try {
             // Log API request start
-            addStatusMessage('info', `Making API request for: ${term}`, `Software: ${softwareName} ${softwareVersion}`);
+            addStatusMessage('info', `Making API request for: ${query.label}`, `Software: ${softwareName} ${softwareVersion}`);
 
-            const response = await fetch(url, { headers });
+            const response = await fetch(query.url, { headers });
             
             // Log response status
             if (response.ok) {
-                addStatusMessage('success', `API request successful for: ${term}`, `Status: ${response.status} ${response.statusText}`);
+                addStatusMessage('success', `API request successful for: ${query.label}`, `Status: ${response.status} ${response.statusText}`);
             } else {
                 if (response.status === 403 && !apiKey) {
-                    addStatusMessage('warning', `Rate limited for: ${term}`, 'Consider adding an API key to increase rate limits');
+                    addStatusMessage('warning', `Rate limited for: ${query.label}`, 'Consider adding an API key to increase rate limits');
                     console.warn('Rate limited. Consider adding an API key.');
                     await sleep(6000); // Wait longer if rate limited
                     continue;
                 }
-                addStatusMessage('error', `API request failed for: ${term}`, `Status: ${response.status} ${response.statusText}`);
+                addStatusMessage('error', `API request failed for: ${query.label}`, `Status: ${response.status} ${response.statusText}`);
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const data = await response.json();
             
             if (data.vulnerabilities) {
-                const cveCount = data.vulnerabilities.length;
-                if (cveCount > 0) {
-                    addStatusMessage('success', `Found ${cveCount} potential CVEs for: ${term}`, `Processing vulnerabilities...`);
-                }
-                
+                const rawCveCount = data.vulnerabilities.length;
+                addStatusMessage('success', `API returned ${rawCveCount} candidate CVEs for: ${query.label}`, `Filtering by exact version match: ${softwareVersion}`);
+
+                let versionMatchedCount = 0;
+                let versionSkippedCount = 0;
+
                 data.vulnerabilities.forEach(vuln => {
                     const cve = vuln.cve;
-                    if (!uniqueCves.has(cve.id)) {
-                        uniqueCves.add(cve.id);
+                    if (uniqueCves.has(cve.id)) return;
+
+                    // Check if this CVE actually affects our specific software version
+                    const isAffected = isVersionAffectedByCve(
+                        cve.configurations,
+                        softwareName,
+                        softwareVersion
+                    );
+
+                    if (isAffected) {
+                        versionMatchedCount++;
                         
                         // Extract severity
                         let severity = 'Unknown';
@@ -366,7 +669,7 @@ async function searchCves(softwareName, softwareVersion) {
                             severity = getSeverityFromScore(cvssScore);
                         }
                         
-                        results.push({
+                        uniqueCves.set(cve.id, {
                             id: cve.id,
                             software: softwareName,
                             version: softwareVersion,
@@ -376,20 +679,34 @@ async function searchCves(softwareName, softwareVersion) {
                             description: cve.descriptions?.[0]?.value || 'No description available',
                             url: `https://nvd.nist.gov/vuln/detail/${cve.id}`
                         });
+                    } else {
+                        versionSkippedCount++;
                     }
                 });
+
+                if (versionSkippedCount > 0) {
+                    addStatusMessage('info', `Version filtering: ${versionMatchedCount} matched, ${versionSkippedCount} skipped`, 
+                        `Skipped CVEs that don't affect version ${softwareVersion}`);
+                }
             } else {
-                addStatusMessage('info', `No vulnerabilities found for: ${term}`, 'API returned empty vulnerabilities array');
+                addStatusMessage('info', `No vulnerabilities found for: ${query.label}`, 'API returned empty result');
             }
         } catch (error) {
-            addStatusMessage('error', `Error fetching CVEs for term "${term}"`, error.message);
-            console.error(`Error fetching CVEs for term "${term}":`, error);
+            addStatusMessage('error', `Error fetching CVEs for query "${query.label}"`, error.message);
+            console.error(`Error fetching CVEs for query "${query.label}":`, error);
         }
 
-        // Rate limiting delay
+        // Rate limiting delay between queries
         const delay = apiKey ? 200 : 6000;
-        addStatusMessage('info', `Rate limiting delay: ${delay}ms`, `Waiting before next API request...`);
-        await sleep(delay); // Shorter delay with API key
+        if (searchQueries.indexOf(query) < searchQueries.length - 1) {
+            addStatusMessage('info', `Rate limiting delay: ${delay}ms`, `Waiting before next API request...`);
+            await sleep(delay);
+        }
+    }
+
+    // Convert Map to array and return
+    for (const cveData of uniqueCves.values()) {
+        results.push(cveData);
     }
 
     return results;

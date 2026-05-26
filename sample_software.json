@@ -28,5 +28,15 @@
     "software_name": "MySQL",
     "software_version": "8.0.36",
     "last_update": "2024-01-16"
+  },
+  {
+    "software_name": "Linux Kernel",
+    "software_version": "5.15.0",
+    "last_update": "2024-03-10"
+  },
+  {
+    "software_name": "Google Chrome",
+    "software_version": "120.0.6099.109",
+    "last_update": "2024-02-22"
   }
 ]
