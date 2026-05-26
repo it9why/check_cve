@@ -35,7 +35,9 @@ const elements = {
     exportCsvBtn: document.getElementById('exportCsvBtn'),
     exportJsonBtn: document.getElementById('exportJsonBtn'),
     exportAllBtn: document.getElementById('exportAllBtn'),
+    filterByUpdateDate: document.getElementById('filterByUpdateDate'),
     statusContainer: document.getElementById('statusContainer'),
+
     statusLog: document.getElementById('statusLog'),
     currentStatus: document.getElementById('currentStatus'),
     clearStatusBtn: document.getElementById('clearStatusBtn'),
@@ -272,13 +274,32 @@ async function handleCveSearch() {
         try {
             const cves = await searchCves(software.software_name, software.software_version);
             
-            if (cves.length > 0) {
-                addStatusMessage('success', `Found ${cves.length} CVEs for ${software.software_name}`, `Version: ${software.software_version}`);
-            } else {
-                addStatusMessage('info', `No CVEs found for ${software.software_name}`, `Version: ${software.software_version}`);
+            // Filter CVEs by update date if the checkbox is checked
+            const filterByDate = elements.filterByUpdateDate && elements.filterByUpdateDate.checked;
+            let dateFilteredCount = 0;
+            let filteredCves = cves;
+            
+            if (filterByDate && software.last_update && software.last_update !== 'N/A') {
+                const lastUpdateDate = new Date(software.last_update);
+                if (!isNaN(lastUpdateDate.getTime())) {
+                    filteredCves = cves.filter(cve => {
+                        if (!cve.published || cve.published === 'Unknown') return true; // include if unknown
+                        const cveDate = new Date(cve.published);
+                        return !isNaN(cveDate.getTime()) && cveDate > lastUpdateDate;
+                    });
+                    dateFilteredCount = cves.length - filteredCves.length;
+                }
             }
             
-            cves.forEach(cve => {
+            if (filteredCves.length > 0) {
+                const dateFilterMsg = dateFilteredCount > 0 ? ` (${dateFilteredCount} older CVEs hidden by date filter)` : '';
+                addStatusMessage('success', `Found ${filteredCves.length} CVEs for ${software.software_name}${dateFilterMsg}`, `Version: ${software.software_version}`);
+            } else {
+                const dateFilterMsg = dateFilteredCount > 0 ? ` (all ${dateFilteredCount} CVEs hidden by date filter - published before ${software.last_update})` : '';
+                addStatusMessage('info', `No CVEs found for ${software.software_name}${dateFilterMsg}`, `Version: ${software.software_version}`);
+            }
+            
+            filteredCves.forEach(cve => {
                 cve.softwareIndex = i;
                 state.cveResults.push(cve);
             });

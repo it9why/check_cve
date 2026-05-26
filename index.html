@@ -109,6 +109,13 @@
                             <input type="text" class="form-control" id="apiKey" placeholder="Leave empty for public rate limit">
                             <div class="form-text">Get a free API key from <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank">NVD</a> to increase rate limits.</div>
                         </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="filterByUpdateDate" checked>
+                            <label class="form-check-label" for="filterByUpdateDate">
+                                <i class="fas fa-calendar-filter"></i> Filter by last update date
+                                <small class="text-muted d-block">Only show CVEs published after the software's last update date</small>
+                            </label>
+                        </div>
                         <button id="searchBtn" class="btn btn-warning" disabled>
                             <i class="fas fa-search"></i> Search CVEs
                         </button>
